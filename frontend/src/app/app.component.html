@@ -1,0 +1,15 @@
+<header class="topbar">
+  <a routerLink="/" class="brand">ServiceLens</a>
+  <nav>
+    @if (auth.isLoggedIn()) {
+      <span class="user">{{ auth.getUsername() }}</span>
+      <a routerLink="/incidents">Incidentes</a>
+      <button type="button" class="linkish" (click)="logout()">Salir</button>
+    } @else {
+      <a routerLink="/login">Entrar</a>
+    }
+  </nav>
+</header>
+<main class="main">
+  <router-outlet />
+</main>

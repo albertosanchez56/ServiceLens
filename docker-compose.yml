@@ -59,16 +59,9 @@ services:
     ports:
       - "3100:3100"
 
-  promtail:
-    image: grafana/promtail:2.9.5
-    container_name: servicelens-promtail
-    user: root
-    volumes:
-      - ./infra/promtail.yaml:/etc/promtail/config.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: ["-config.file=/etc/promtail/config.yml"]
-    depends_on:
-      - loki
+  # Promtail 2.9.x usa API Docker 1.42; Docker Desktop reciente exige ≥1.44 → errores en bucle.
+  # Logs en Loki vía contenedores: reactivar con Grafana Alloy o Promtail 3.x cuando lo configures.
+  # Mientras tanto: ver logs con `docker logs <contenedor>`; trazas/métricas no dependen de Promtail.
 
   grafana:
     image: grafana/grafana:11.0.0
@@ -117,8 +110,9 @@ services:
       context: ./demo-edge-api
     image: servicelens/edge-api:local
     container_name: edge-api
+    # Host 18080 → evita choque con otra app en Windows que use :8080 (IIS, Tomcat, otro Spring…)
     ports:
-      - "8080:8080"
+      - "18080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
@@ -135,6 +129,7 @@ services:
       - "8090:8090"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JWT_SECRET: "${JWT_SECRET:-dev-change-me-use-32-chars-minimum!!}"
     depends_on:
       postgres:
         condition: service_healthy

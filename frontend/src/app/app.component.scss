@@ -1,0 +1,57 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid var(--sl-border);
+  background: rgba(10, 15, 28, 0.92);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--sl-text);
+  text-decoration: none;
+  &:hover {
+    color: var(--sl-accent);
+  }
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user {
+  font-size: 0.85rem;
+  color: var(--sl-muted);
+}
+
+nav a {
+  color: var(--sl-accent);
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.linkish {
+  background: none;
+  border: none;
+  color: var(--sl-muted);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  &:hover {
+    color: var(--sl-accent);
+  }
+}
+
+.main {
+  padding: 1.5rem;
+}

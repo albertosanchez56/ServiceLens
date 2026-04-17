@@ -5,9 +5,22 @@ spring:
     url: jdbc:postgresql://localhost:5432/servicelens
     username: servicelens
     password: servicelens
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
 server:
   port: 8090
+
+servicelens:
+  jwt:
+    secret: ${JWT_SECRET:dev-change-me-use-32-chars-minimum!!}
+    expiration-seconds: 3600
 
 management:
   endpoints:

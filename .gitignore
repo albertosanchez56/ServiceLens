@@ -1,9 +1,42 @@
+# Maven / compilación
 target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
 .idea/
 *.iml
 .project
 .classpath
 .settings/
 .vscode/
+
+# Node (frontend Angular)
+node_modules/
+frontend/dist/
+
+# Logs y basura local
 *.log
+hs_err_pid*.log
+replay_pid*.log
 .DS_Store
+Thumbs.db
+
+# Secretos y entornos locales (nunca subir claves reales)
+.env
+.env.*
+!.env.example
+application-local.yml
+application-secret.yml
+application-secrets.yml
+**/secrets/
+
+# Claves / certificados
+*.pem
+*.p12
+*.jks
+*.key
+
+# Docker (volúmenes o overrides locales; el compose del repo sí va)
+docker-compose.override.yml

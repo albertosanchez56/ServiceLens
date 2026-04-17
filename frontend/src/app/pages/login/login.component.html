@@ -1,0 +1,23 @@
+<div class="login">
+  <div class="card">
+    <h1>ServiceLens</h1>
+    <p class="hint">Usuarios demo: <code>viewer</code> / <code>viewer</code> o <code>editor</code> / <code>editor</code></p>
+
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <label>
+        Usuario
+        <input type="text" formControlName="username" autocomplete="username" />
+      </label>
+      <label>
+        Contraseña
+        <input type="password" formControlName="password" autocomplete="current-password" />
+      </label>
+      @if (error) {
+        <p class="error" role="alert">{{ error }}</p>
+      }
+      <button type="submit" [disabled]="submitting">
+        {{ submitting ? 'Entrando…' : 'Entrar' }}
+      </button>
+    </form>
+  </div>
+</div>

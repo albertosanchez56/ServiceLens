@@ -44,6 +44,8 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>${java.version}</release>
+                    <!-- Spring @RequestParam sin nombre explícito necesita nombres de parámetros en bytecode -->
+                    <parameters>true</parameters>
                 </configuration>
             </plugin>
         </plugins>
@@ -53,6 +55,14 @@
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring-boot.version}</version>
+                    <!-- Sin spring-boot-starter-parent como parent, hay que declarar repackage explícitamente -->
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>repackage</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -60,6 +70,7 @@
                     <version>3.13.0</version>
                     <configuration>
                         <release>${java.version}</release>
+                        <parameters>true</parameters>
                     </configuration>
                 </plugin>
             </plugins>

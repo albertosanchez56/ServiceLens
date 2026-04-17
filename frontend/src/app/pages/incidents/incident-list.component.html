@@ -1,0 +1,39 @@
+<section class="list">
+  <header>
+    <h1>Incidentes</h1>
+    @if (!loading && !error) {
+      <p class="meta">{{ totalElements }} en total</p>
+    }
+  </header>
+
+  @if (loading) {
+    <p class="muted">Cargando…</p>
+  } @else if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  } @else if (items.length === 0) {
+    <p class="muted">No hay incidentes.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th>Título</th>
+          <th>Estado</th>
+          <th>Severidad</th>
+          <th>Actualizado</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (r of items; track r.id) {
+          <tr>
+            <td>
+              <a [routerLink]="['/incidents', r.id]">{{ r.title }}</a>
+            </td>
+            <td><span class="pill">{{ r.state }}</span></td>
+            <td>{{ r.severity }}</td>
+            <td>{{ r.updatedAt | date }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>

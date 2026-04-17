@@ -1,0 +1,72 @@
+<section class="detail">
+  <a routerLink="/incidents" class="back">← Volver al listado</a>
+
+  @if (loading) {
+    <p class="muted">Cargando…</p>
+  } @else if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  } @else if (incident) {
+    <header>
+      <h1>{{ incident.title }}</h1>
+      <div class="badges">
+        <span class="pill">{{ incident.state }}</span>
+        <span class="pill secondary">{{ incident.severity }}</span>
+      </div>
+    </header>
+
+    <dl class="grid">
+      <dt>Servicio raíz</dt>
+      <dd>{{ incident.rootService ?? '—' }}</dd>
+      <dt>Inicio</dt>
+      <dd>{{ incident.startedAt | date: 'medium' }}</dd>
+      <dt>Actualizado</dt>
+      <dd>{{ incident.updatedAt | date: 'medium' }}</dd>
+      <dt>Resuelto</dt>
+      <dd>{{ incident.resolvedAt ? (incident.resolvedAt | date: 'medium') : '—' }}</dd>
+      <dt>Versión</dt>
+      <dd>{{ incident.version }}</dd>
+    </dl>
+
+    @if (incident.summary) {
+      <section class="block">
+        <h2>Resumen</h2>
+        <p class="summary">{{ incident.summary }}</p>
+      </section>
+    }
+
+    @if (incident.metadata != null) {
+      <section class="block">
+        <h2>Metadatos</h2>
+        <pre class="json">{{ jsonPreview(incident.metadata) }}</pre>
+      </section>
+    }
+
+    <section class="block timeline-block">
+      <h2>Timeline</h2>
+      @if (events.length === 0) {
+        <p class="muted">Sin eventos registrados.</p>
+      } @else {
+        <ol class="timeline">
+          @for (e of events; track e.id) {
+            <li>
+              <div class="time">{{ e.occurredAt | date: 'medium' }}</div>
+              <div class="body">
+                <div class="type">{{ e.type }}</div>
+                <div class="actor">
+                  @if (e.actor.system) {
+                    <span>Sistema</span>
+                  } @else {
+                    <span>{{ e.actor.userId }}</span>
+                  }
+                </div>
+                @if (e.payload != null) {
+                  <pre class="json small">{{ jsonPreview(e.payload) }}</pre>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      }
+    </section>
+  }
+</section>

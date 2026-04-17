@@ -1,0 +1,141 @@
+.detail {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  color: var(--sl-muted);
+  text-decoration: none;
+  &:hover {
+    color: var(--sl-accent);
+  }
+}
+
+header {
+  margin-bottom: 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.6rem;
+}
+
+.badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+  &.secondary {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fcd34d;
+  }
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 0.5rem 1rem;
+  margin: 0 0 1.5rem;
+  padding: 1rem;
+  background: var(--sl-panel);
+  border: 1px solid var(--sl-border);
+  border-radius: 12px;
+}
+
+dt {
+  margin: 0;
+  color: var(--sl-muted);
+  font-size: 0.85rem;
+}
+
+dd {
+  margin: 0;
+}
+
+.block {
+  margin-bottom: 1.5rem;
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.summary {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.json {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 10px;
+  background: #0a0f1c;
+  border: 1px solid var(--sl-border);
+  overflow: auto;
+  font-size: 0.8rem;
+  &.small {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+  }
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 2px solid var(--sl-border);
+}
+
+.timeline li {
+  position: relative;
+  padding: 0 0 1.25rem 1.25rem;
+  margin-left: 0.5rem;
+}
+
+.timeline li::before {
+  content: '';
+  position: absolute;
+  left: -0.55rem;
+  top: 0.35rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sl-accent);
+}
+
+.time {
+  font-size: 0.8rem;
+  color: var(--sl-muted);
+}
+
+.body {
+  margin-top: 0.25rem;
+}
+
+.type {
+  font-weight: 600;
+}
+
+.actor {
+  font-size: 0.85rem;
+  color: var(--sl-muted);
+}
+
+.muted {
+  color: var(--sl-muted);
+}
+
+.error {
+  color: #f87171;
+}
