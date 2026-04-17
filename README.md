@@ -1,109 +1,108 @@
-# ServiceLens — Sprint 1–2 (observabilidad + incidentes + UI)
+# ServiceLens
 
-Monorepo Maven con microservicios demo (**edge-api** → **checkout** → **payment**), API **platform** (Postgres + Flyway, incidentes/eventos/evidencia, JWT) y stack local: **OpenTelemetry Collector**, **Prometheus**, **Loki**, **Tempo**, **Grafana**. Frontend **Angular** en `frontend/` (lista y detalle de incidente con timeline).
+Herramienta de **análisis de incidencias** orientada a backends y microservicios: correlación de **logs, métricas y trazas**, modelo de **incidente** (estado, timeline, evidencia) y API REST gobernada. La IA, cuando exista en el roadmap, debe **apoyar** la correlación y citar evidencia, no sustituirla (véase `POLITICA-IA.txt`).
 
-Coste: **0 €** en local (imágenes Docker públicas; sin API de LLM en esta fase).
+Este repositorio es un **monorepo** listo para ejecutarse en local con **Docker Compose**: servicios demo instrumentados, stack de observabilidad y una API **platform** con persistencia en **PostgreSQL**.
+
+## Qué incluye el repositorio
+
+| Parte | Descripción |
+|--------|-------------|
+| **demo-edge-api**, **demo-checkout**, **demo-payment** | Cadena HTTP de ejemplo; trazas y métricas vía OpenTelemetry. |
+| **platform** | API Spring Boot: incidentes, eventos, referencias de evidencia, autenticación **JWT** y roles **VIEWER** / **EDITOR**. Migraciones con **Flyway**. |
+| **Stack local** | Postgres, **OpenTelemetry Collector**, **Tempo**, **Prometheus**, **Loki**, **Grafana**. |
+| **frontend** | Aplicación **Angular**: inicio de sesión, listado y detalle de incidente con **timeline** de eventos. |
+
+En la raíz hay documentación de producto (objetivos, contrato REST, guión de demo, política de IA): `OBJETIVOS-Y-BACKLOG.txt`, `CONTRATO-API.txt`, `GUION-DEMO.txt`, `POLITICA-IA.txt`.
 
 ## Requisitos
 
-- **JDK 17 o 21** (el proyecto compila con **17** por defecto; si tienes solo 17, no hace falta cambiar nada)
-- **Maven** no es obligatorio: el repo incluye **Maven Wrapper** (`mvnw.cmd`)
-- **Docker Desktop** (Compose v2)
-- **Node.js 20+** y **npm** (solo para el frontend Angular en `frontend/`)
+- **JDK 17** (u 21); el proyecto fija **17** en el build.
+- **Maven Wrapper** incluido (`mvnw.cmd`); no hace falta instalar Maven.
+- **Docker Desktop** con Compose v2.
+- **Node.js 20+** y **npm** para el frontend en `frontend/`.
 
-## Compilar JARs
+## Compilar los JARs
 
-En la raíz del repositorio (`ServiceLens`, donde está `pom.xml` y `mvnw.cmd`):
-
-**Recomendado (sin instalar Maven):**
+Desde la raíz del repo (donde está `pom.xml`):
 
 ```powershell
 .\mvnw.cmd clean package -DskipTests
 ```
 
-La primera vez puede tardar: descarga Apache Maven 3.9.9 a tu carpeta de usuario (`.m2/wrapper`).
+Si tienes Maven en el `PATH`, puedes usar `mvn clean package -DskipTests`.
 
-Si ya tienes **Maven** instalado y en el `PATH`, puedes usar también:
-
-```powershell
-mvn clean package -DskipTests
-```
-
-## Arrancar todo
+## Arrancar el entorno con Docker
 
 ```powershell
 docker compose up --build
 ```
 
-La primera vez descarga imágenes y construye los contenedores de las apps (puede tardar varios minutos).
+La primera vez descarga imágenes y construye imágenes locales; puede tardar varios minutos.
 
 ## Puertos útiles
 
-El **edge** está expuesto en el host como **18080** (no 8080) para no chocar con otras apps que suelen usar 8080 en Windows.
+El **edge** queda en el host en **18080** (no 8080) para evitar conflictos con otros servicios en Windows.
 
-| Servicio    | URL / puerto |
-|------------|----------------|
+| Recurso | URL / notas |
+|---------|-------------|
 | Flujo demo | http://localhost:18080/api/flow |
-| Flujo con fallo simulado en payment | http://localhost:18080/api/flow?failPayment=true |
-| Latencia simulada en payment (ms) | http://localhost:18080/api/flow?paymentDelayMs=2000 |
-| Platform meta | http://localhost:8090/api/v1/meta |
-| Platform login (JWT) | `POST http://localhost:8090/api/v1/auth/login` (JSON `username` / `password`) |
-| Incidentes (requiere `Authorization: Bearer …`) | `GET http://localhost:8090/api/v1/incidents` |
-| Actuator health | http://localhost:8090/actuator/health |
-| UI Angular (dev) | http://localhost:4200 (tras `npm start` en `frontend/`) |
+| Fallo simulado en payment | http://localhost:18080/api/flow?failPayment=true |
+| Latencia simulada (ms) | http://localhost:18080/api/flow?paymentDelayMs=2000 |
+| Meta platform | http://localhost:8090/api/v1/meta |
+| Login JWT | `POST http://localhost:8090/api/v1/auth/login` (cuerpo JSON: `username`, `password`) |
+| Incidentes | `GET http://localhost:8090/api/v1/incidents` (cabecera `Authorization: Bearer …`) |
+| Health | http://localhost:8090/actuator/health |
+| UI Angular (desarrollo) | http://localhost:4200 tras `npm start` en `frontend/` |
 | Grafana | http://localhost:3000 (admin / admin) |
 | Prometheus | http://localhost:9090 |
-| Tempo API | http://localhost:3200 |
+| Tempo | http://localhost:3200 |
 
-## Usuarios demo (API y UI)
+## Usuarios demo
 
 | Usuario | Contraseña | Rol |
 |---------|------------|-----|
-| `viewer` | `viewer` | lectura de incidentes |
-| `editor` | `editor` | lectura + creación/edición |
+| `viewer` | `viewer` | Solo lectura de incidentes |
+| `editor` | `editor` | Lectura y operaciones de escritura según API |
 
-La API usa **JWT** (`accessToken` en la respuesta de login). En Docker puedes fijar el secreto con la variable de entorno **`JWT_SECRET`** (mínimo **32 caracteres**); si no se define, Compose usa un valor de desarrollo por defecto.
+La respuesta de login incluye el **accessToken** JWT. En Docker puedes definir **`JWT_SECRET`** (mínimo **32 caracteres**); si no se define, Compose usa un valor solo para desarrollo.
 
 ## Frontend Angular
 
-En el directorio `frontend/`:
-
 ```powershell
+cd frontend
 npm install
 npm start
 ```
 
-Abre **http://localhost:4200**, inicia sesión con **viewer**/**viewer** o **editor**/**editor**, y navega por el listado y el detalle (timeline de eventos). La URL base de la API está en `frontend/src/environments/environment.ts` (`http://localhost:8090`); el backend permite CORS desde `http://localhost:4200`.
+La URL base de la API está en `frontend/src/environments/environment.ts` (por defecto `http://localhost:8090`). El backend admite CORS desde `http://localhost:4200`.
 
-## Qué comprobar (Sprint 1)
+## Cómo comprobar que todo encaja
 
-1. Tras arrancar, abre **Grafana** → **Explore** → datasource **Tempo** y busca trazas recientes.
-2. Ejecuta varias veces: `GET http://localhost:18080/api/flow`
-3. Deberías ver un trace que atraviesa **edge-api**, **checkout** y **payment**.
-4. En **Explore** → **Loki**, prueba `{service="edge-api"}` o el nombre que salga en etiquetas (los logs JSON incluyen `traceId` cuando Micrometer rellena MDC).
-5. En **Prometheus**, comprueba métricas `http_server_requests_seconds_*` por instancia.
+**Observabilidad**
 
-## Qué comprobar (Sprint 2)
+1. Abre **Grafana** → **Explore** → datasource **Tempo** y busca trazas recientes.
+2. Llama varias veces a `GET http://localhost:18080/api/flow`.
+3. Deberías ver un trace que cruza **edge-api**, **checkout** y **payment**.
+4. En **Explore** → **Loki**, prueba etiquetas de servicio (p. ej. según lo que muestre tu configuración).
+5. En **Prometheus**, revisa métricas HTTP por instancia.
 
-1. Arranca **platform** y **postgres** (p. ej. `docker compose up --build postgres platform` o el `compose` completo).
-2. Opcional: crea un incidente con **editor** (`POST /api/v1/incidents` con JWT) o usa datos que hayas cargado por Flyway/seed.
-3. Con la UI en **:4200**, verifica listado → detalle → timeline de eventos.
-4. Con **viewer**, comprueba que solo puedes leer; con **editor**, que puedes mutar según el contrato (`CONTRATO-API.txt`).
+**Plataforma e interfaz**
 
-## Servicios Docker (red interna)
+1. Con **Postgres** y **platform** en marcha (solo esos servicios o el `compose` completo), autentica con **editor** y crea un incidente vía API si lo necesitas, o usa datos ya presentes en base de datos.
+2. En la UI (**:4200**), revisa listado → detalle → **timeline** de eventos.
+3. Con **viewer**, confirma acceso de solo lectura; con **editor**, las operaciones permitidas por `CONTRATO-API.txt`.
 
-- `edge-api:8080`, `checkout:8081`, `payment:8082`, `platform:8090`
-- Trazas: apps → **OTel Collector** (`:4318`) → **Tempo**
-- Métricas: Prometheus scrapea `/actuator/prometheus` de cada app
+## Red interna (Docker)
 
-## Documentación de producto (sin código)
-
-En la raíz del repo: `OBJETIVOS-Y-BACKLOG.txt`, `CONTRATO-API.txt`, `GUION-DEMO.txt`, `POLITICA-IA.txt`.
+- Servicios de aplicación: `edge-api:8080`, `checkout:8081`, `payment:8082`, `platform:8090`.
+- Trazas: aplicaciones → **OTel Collector** (`:4318`) → **Tempo**.
+- Métricas: Prometheus hace scrape de `/actuator/prometheus` en cada app.
 
 ## Problemas frecuentes
 
-- **Promtail retirado del compose**: con Docker Desktop actual, Promtail 2.9.x falla con *client version 1.42 is too old* (API mínima 1.44). El stack **no incluye Promtail** para evitar spam en logs; **Loki** sigue arrancando (vacío) y puedes usar **Tempo + Prometheus** como antes. Para ver logs de una app: `docker logs edge-api` (o el nombre del contenedor). Más adelante se puede usar **Grafana Alloy** o **Promtail 3.x** con config nueva.
-- **Sin trazas en Tempo**: comprueba que `otel-collector` y `tempo` estén arriba y que el perfil `docker` esté activo (`SPRING_PROFILES_ACTIVE=docker` ya va en Compose).
-- **Puerto 5432 ocupado**: cambia el mapeo de `postgres` en `docker-compose.yml` o detén otra instancia de Postgres local.
-- **Puerto 8080 ocupado** (`bind: Only one usage of each socket address`): otra aplicación ya usa 8080. Este proyecto mapea **edge-api** a **18080** en el host (`18080:8080`). Si 18080 también falla, cámbialo en `docker-compose.yml` por otro libre (p. ej. `28080:8080`).
-- **`connection failed` / `ERR_CONNECTION_REFUSED` en el navegador**: (1) Comprueba que usas **http://localhost:18080** para el flujo demo, **no 8080** (salvo que hayas cambiado el mapeo). (2) Si los contenedores `edge-api`, `checkout` o `platform` están **Exited**, mira `docker logs edge-api`: si sale **`no main manifest attribute, in /app/app.jar`**, el build de la imagen copió el JAR equivocado; vuelve a compilar con `.\mvnw.cmd clean package -DskipTests` y reconstruye sin caché: `docker compose build --no-cache edge-api checkout payment platform` y luego `docker compose up`.
+- **Promtail no está en el compose**: versiones antiguas de Promtail chocan con la API de Docker reciente (*client version 1.42 is too old*). **Loki** puede arrancar vacío; para logs de una app usa `docker logs <contenedor>`. Alternativas futuras: Alloy o Promtail 3.x.
+- **Sin trazas en Tempo**: comprueba que `otel-collector` y `tempo` estén arriba y que las apps usen el perfil `docker` (ya definido en Compose).
+- **Puerto 5432 ocupado**: cambia el mapeo de `postgres` en `docker-compose.yml` o libera el puerto.
+- **8080 ocupado en el host**: el edge usa **18080** en el host. Si falla, cambia el mapeo en `docker-compose.yml`.
+- **Error al abrir el flujo demo o APIs**: confirma la URL (**18080** para el edge, **8090** para platform). Si un contenedor de app está **Exited**, revisa `docker logs`. Si aparece **`no main manifest attribute`** en el JAR, recompila con `.\mvnw.cmd clean package -DskipTests` y reconstruye la imagen (`docker compose build --no-cache` en los servicios afectados).
