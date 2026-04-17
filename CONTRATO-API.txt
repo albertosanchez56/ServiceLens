@@ -1,0 +1,729 @@
+================================================================================
+  SERVICELENS — Contrato de API REST (MVP → visión)
+  Especificación conceptual: recursos, parámetros, errores y eventos
+  Sin código ni nombres de clases; convenciones estables para implementación
+================================================================================
+
+ÚLTIMA REVISIÓN: 2026-04-16
+DOCUMENTOS RELACIONADOS: OBJETIVOS-Y-BACKLOG.txt, GUION-DEMO.txt, POLITICA-IA.txt
+
+
+--------------------------------------------------------------------------------
+0. ALCANCE Y VERSIONADO
+--------------------------------------------------------------------------------
+
+  Base path sugerido:  /api/v1
+
+  Versionado: prefijo /api/v1 en URL. Cambios incompatibles → /api/v2 (futuro).
+
+  Formato: JSON en cuerpo y respuestas; charset UTF-8.
+
+  Fechas/hora: ISO-8601 en UTC (ej. 2026-04-16T14:30:00Z).
+
+  Identificadores: string opaco tipo UUID para recursos expuestos (incidents,
+  rules, signals, documents), salvo IDs internos no expuestos.
+
+
+--------------------------------------------------------------------------------
+1. AUTENTICACIÓN Y AUTORIZACIÓN
+--------------------------------------------------------------------------------
+
+1.1 Mecanismo (MVP)
+
+  - Autenticación: Bearer JWT en cabecera
+        Authorization: Bearer <access_token>
+
+  - Endpoints públicos explícitos (sin JWT):
+        POST /api/v1/auth/login     (si se implementa login propio)
+        GET  /actuator/health o GET /health  (según convención Spring)
+        GET  /api/v1/openapi.json o swagger (opcional, solo dev)
+
+  - Resto de /api/v1/** requiere JWT válido (salvo decisión explícita de
+    "modo demo sin auth" documentada en README; no recomendado para portfolio).
+
+1.2 Roles (MVP mínimo)
+
+  VIEWER  — lectura de incidentes, reglas, señales, documentación indexada.
+  EDITOR  — lo anterior + crear/actualizar incidentes, notas, evidencia manual,
+            feedback IA, ingesta de conocimiento (upload).
+  ADMIN   — (opcional fase posterior) gestión de usuarios y reglas globales.
+
+  Si solo hay dos roles en código: mapear ADMIN a EDITOR hasta nuevo aviso.
+
+1.3 Respuesta sin autenticación / token inválido
+
+  HTTP 401 + cuerpo Problem (sección 3).
+  Código de error: UNAUTHENTICATED.
+
+1.4 Respuesta con permisos insuficientes
+
+  HTTP 403 + Problem.
+  Código: FORBIDDEN.
+
+
+--------------------------------------------------------------------------------
+2. CONVENCIONES COMUNES
+--------------------------------------------------------------------------------
+
+2.1 Cabeceras de cliente (recomendadas)
+
+  Accept: application/json
+  Content-Type: application/json (en POST/PATCH con cuerpo)
+  X-Request-Id: <uuid>  (opcional; si se envía, devolverla en respuesta o logs)
+
+2.2 Paginación (listas)
+
+  Query:
+    page       — entero ≥ 0, por defecto 0 (primera página).
+    size       — entero 1..100, por defecto 20.
+
+  Respuesta envuelta sugerida:
+    {
+      "items": [ ... ],
+      "page": 0,
+      "size": 20,
+      "totalElements": 123,
+      "totalPages": 7
+    }
+
+  Alternativa cursor-based (futuro): cursor + limit; no obligatorio MVP.
+
+2.3 Ordenación
+
+  Query opcional:
+    sort=campo,dir   ej. sort=updatedAt,desc
+  Campos permitidos por recurso documentados bajo cada lista.
+
+2.4 Filtrado (query params)
+
+  Nombres en camelCase o snake_case de forma CONSISTENTE en todo el API (elegir
+  uno; recomendación: camelCase en JSON y query para alinear con Angular).
+
+2.5 Idempotencia (opcional avanzado)
+
+  Para POST que crean recursos con riesgo de duplicar: cabecera opcional
+  Idempotency-Key. MVP puede omitirse si las operaciones son puramente UI.
+
+
+--------------------------------------------------------------------------------
+3. MODELO DE ERROR (PROBLEM DETAILS)
+--------------------------------------------------------------------------------
+
+  Inspiración: RFC 7807 (application/problem+json). MVP puede ser JSON propio
+  homogéneo siempre que incluya código estable.
+
+  Content-Type sugerido: application/problem+json
+
+  Cuerpo mínimo:
+    {
+      "type": "https://servicelens.local/problems/<codigo-minusculo>",
+      "title": "Breve título legible",
+      "status": 404,
+      "code": "INCIDENT_NOT_FOUND",
+      "detail": "Mensaje concreto para el cliente",
+      "instance": "/api/v1/incidents/…",
+      "traceId": "<id de correlación request>",
+      "errors": [  // opcional: validación campo a campo
+        { "field": "severity", "message": "must be one of LOW, MEDIUM, HIGH, CRITICAL" }
+      ]
+    }
+
+3.1 Catálogo de códigos HTTP y "code" de negocio (recomendado)
+
+  HTTP 400 BAD_REQUEST
+    code: VALIDATION_ERROR | INVALID_PARAMETER | INVALID_STATE_TRANSITION
+
+  HTTP 401 UNAUTHENTICATED
+    code: UNAUTHENTICATED | TOKEN_EXPIRED
+
+  HTTP 403 FORBIDDEN
+    code: FORBIDDEN
+
+  HTTP 404 NOT_FOUND
+    code: INCIDENT_NOT_FOUND | RULE_NOT_FOUND | SIGNAL_NOT_FOUND | DOCUMENT_NOT_FOUND
+
+  HTTP 409 CONFLICT
+    code: VERSION_CONFLICT        (optimistic locking, si se usa)
+          DUPLICATE_IDEMPOTENCY   (si Idempotency-Key repetido con cuerpo distinto)
+
+  HTTP 422 UNPROCESSABLE_ENTITY
+    code: BUSINESS_RULE_VIOLATION  (ej. cerrar incidente ya cerrado con reglas)
+
+  HTTP 429 TOO_MANY_REQUESTS
+    code: RATE_LIMITED | IA_QUOTA_EXCEEDED
+
+  HTTP 500 INTERNAL_SERVER_ERROR
+    code: INTERNAL_ERROR
+
+  HTTP 503 SERVICE_UNAVAILABLE
+    code: DEPENDENCY_DOWN          (DB, broker, proveedor LLM)
+
+  Regla: el cliente puede mostrar "detail" al usuario; automatizaciones deben
+  basarse en "code" estable, no en texto libre.
+
+
+--------------------------------------------------------------------------------
+4. ENUMS Y VALORES ESTABLES
+--------------------------------------------------------------------------------
+
+4.1 Incident.state
+
+  OPEN      — abierto, en investigación.
+  ACK       — reconocido / en curso.
+  RESOLVED  — resuelto (puede tener resolución breve opcional).
+  (Opcional futuro: CLOSED para archivo.)
+
+4.2 Incident.severity
+
+  LOW | MEDIUM | HIGH | CRITICAL
+
+4.3 IncidentEvent.type
+
+  ALERT_TRIGGERED      — disparo de regla / alerta.
+  SIGNAL_LINKED        — señal vinculada o actualizada.
+  CORRELATION_FOUND    — resultado de correlación (trace, ventana, grafo).
+  HUMAN_NOTE           — nota de usuario.
+  STATUS_CHANGE        — cambio de estado/severidad.
+  IA_SUMMARY           — salida de IA (resumen/hipótesis) con metadata.
+  EVIDENCE_ADDED       — referencia de evidencia añadida.
+
+4.4 EvidenceRef.type
+
+  TRACE       — trace id (+ opcional span id, servicio).
+  LOG_QUERY   — query guardada para Loki/ES (string) + ventana temporal sugerida.
+  METRIC_QUERY— expresión PromQL o referencia a panel Grafana.
+  DOC_CHUNK   — referencia a fragmento de documentación (id de chunk).
+  CUSTOM_URL  — enlace externo validado (Grafana explore, etc.).
+
+4.5 Rule.evaluationStatus (solo lectura en señales / reglas)
+
+  ENABLED | DISABLED
+
+4.6 Signal.status (sugerido)
+
+  OPEN | ACK | ATTACHED_TO_INCIDENT | SUPPRESSED
+
+
+--------------------------------------------------------------------------------
+5. RECURSOS — AUTENTICACIÓN (MVP)
+--------------------------------------------------------------------------------
+
+5.1 POST /api/v1/auth/login
+
+  Request:
+    { "username": "string", "password": "string" }
+
+  Response 200:
+    {
+      "accessToken": "jwt",
+      "tokenType": "Bearer",
+      "expiresInSeconds": 3600,
+      "roles": [ "EDITOR" ]
+    }
+
+  Errores: 401 UNAUTHENTICATED si credenciales inválidas.
+
+  Nota: alternativa válida para portfolio — solo usuarios seed y JWT emitido
+  por script; login puede simplificarse. Si usas OAuth2 externo, este endpoint
+  puede sustituirse y el contrato debe documentarse aparte.
+
+
+--------------------------------------------------------------------------------
+6. RECURSOS — USUARIO ACTUAL
+--------------------------------------------------------------------------------
+
+6.1 GET /api/v1/me
+
+  Response 200:
+    {
+      "userId": "uuid",
+      "username": "string",
+      "roles": [ "VIEWER" ]
+    }
+
+
+--------------------------------------------------------------------------------
+7. RECURSOS — INCIDENTES
+--------------------------------------------------------------------------------
+
+7.1 GET /api/v1/incidents
+
+  Filtros query (todos opcionales):
+    state          — OPEN | ACK | RESOLVED
+    severity       — LOW | MEDIUM | HIGH | CRITICAL
+    from           — ISO instant (incident.updatedAt >= from)
+    to             — ISO instant
+    service        — string (servicio afectado sugerido o etiqueta)
+    q              — búsqueda libre en título (implementación mínima: ILIKE)
+
+  Orden por defecto: updatedAt desc.
+
+  Response 200: página de items (sección 2.2), cada item:
+
+    {
+      "id": "uuid",
+      "title": "string",
+      "state": "OPEN",
+      "severity": "HIGH",
+      "startedAt": "ISO",
+      "updatedAt": "ISO",
+      "rootService": "string | null",
+      "signalCount": 0,
+      "eventCount": 0
+    }
+
+7.2 POST /api/v1/incidents
+
+  Roles: EDITOR+
+
+  Request:
+    {
+      "title": "string (requerido)",
+      "severity": "HIGH",
+      "startedAt": "ISO (opcional; default now)",
+      "rootService": "string | null",
+      "metadata": { }  // opcional: clave-valor para demo
+    }
+
+  Response 201:
+    cuerpo = Incident completo (ver GET por id).
+    Header: Location: /api/v1/incidents/{id}
+
+7.3 GET /api/v1/incidents/{incidentId}
+
+  Response 200: Incident detallado:
+
+    {
+      "id": "uuid",
+      "title": "string",
+      "state": "OPEN",
+      "severity": "HIGH",
+      "startedAt": "ISO",
+      "updatedAt": "ISO",
+      "resolvedAt": "ISO | null",
+      "rootService": "string | null",
+      "summary": "string | null",   // último resumen humano o IA corto (opcional)
+      "metadata": { },
+      "version": 0   // si optimistic locking
+    }
+
+  Errores: 404 INCIDENT_NOT_FOUND
+
+7.4 PATCH /api/v1/incidents/{incidentId}
+
+  Roles: EDITOR+
+
+  Request (campos parciales):
+    {
+      "title": "string",
+      "severity": "HIGH",
+      "state": "ACK",
+      "rootService": "string | null",
+      "expectedVersion": 0   // si se usa locking
+    }
+
+  Reglas de negocio:
+    - Transiciones de estado válidas documentadas (ej. OPEN→ACK→RESOLVED).
+    - RESOLVED puede fijar resolvedAt automáticamente.
+
+  Response 200: Incident actualizado.
+
+  Errores: 404, 422 INVALID_STATE_TRANSITION o BUSINESS_RULE_VIOLATION
+
+7.5 DELETE /api/v1/incidents/{incidentId}
+
+  Roles: ADMIN o política explícita; MVP puede omitirse (solo archivar vía estado).
+
+  Si no se implementa: devolver 405 Method Not Allowed con documentación.
+
+
+--------------------------------------------------------------------------------
+8. RECURSOS — EVENTOS DE INCIDENTE (TIMELINE)
+--------------------------------------------------------------------------------
+
+8.1 GET /api/v1/incidents/{incidentId}/events
+
+  Query:
+    page, size
+    type  — filtro por IncidentEvent.type (opcional)
+    from, to — rango temporal sobre event.occurredAt
+
+  Orden por defecto: occurredAt asc (timeline) o desc (últimos primero);
+  RECOMENDACIÓN MVP: occurredAt asc para UI tipo timeline.
+
+  Response 200: página de:
+
+    {
+      "id": "uuid",
+      "incidentId": "uuid",
+      "type": "IA_SUMMARY",
+      "occurredAt": "ISO",
+      "actor": { "userId": "uuid | null", "system": true },
+      "payload": { }  // según tipo; esquema por tipo en sección 8.3
+    }
+
+8.2 POST /api/v1/incidents/{incidentId}/events
+
+  Roles: EDITOR+
+
+  Uso principal: notas humanas y evidencia manual vía tipos permitidos.
+
+  Request mínimo:
+    {
+      "type": "HUMAN_NOTE",
+      "payload": { "text": "..." }
+    }
+
+  Response 201: evento creado.
+
+  Errores: 404, 422 si type no permitido para POST manual (ej. IA_SUMMARY solo
+  por sistema).
+
+8.3 Payloads sugeridos por tipo (contrato flexible pero documentado)
+
+  HUMAN_NOTE:
+    { "text": "string" }
+
+  EVIDENCE_ADDED:
+    { "evidenceId": "uuid" }
+
+  IA_SUMMARY:
+    {
+      "kind": "EXEC_SUMMARY | TECH_SUMMARY | HYPOTHESES",
+      "model": "string",
+      "promptVersion": "string",
+      "content": "string o estructura anidada",
+      "evidenceRefs": [ { "type": "TRACE", "ref": "..." } ]
+    }
+
+  CORRELATION_FOUND:
+    {
+      "method": "TRACE_ID | TIME_WINDOW | SERVICE_GRAPH",
+      "description": "string",
+      "relatedServices": [ "a", "b" ],
+      "traceIds": [ "..." ],
+      "window": { "from": "ISO", "to": "ISO" }
+    }
+
+  ALERT_TRIGGERED / SIGNAL_LINKED:
+    {
+      "ruleId": "uuid",
+      "signalId": "uuid",
+      "fingerprint": "string | null"
+    }
+
+
+--------------------------------------------------------------------------------
+9. RECURSOS — EVIDENCIA
+--------------------------------------------------------------------------------
+
+9.1 GET /api/v1/incidents/{incidentId}/evidence
+
+  Response 200: lista (sin paginar en MVP si < 100 ítems; si no, paginar).
+
+    [
+      {
+        "id": "uuid",
+        "type": "LOG_QUERY",
+        "label": "string opcional",
+        "ref": "string",           // query o id según tipo
+        "metadata": {
+          "grafanaUrl": "https://...",
+          "validFrom": "ISO",
+          "validTo": "ISO"
+        },
+        "createdAt": "ISO"
+      }
+    ]
+
+9.2 POST /api/v1/incidents/{incidentId}/evidence
+
+  Roles: EDITOR+
+
+  Request:
+    {
+      "type": "METRIC_QUERY",
+      "label": "Latency checkout",
+      "ref": "sum(rate(...))",
+      "metadata": { }
+    }
+
+  Response 201 + Location.
+
+  Efecto colateral opcional: crear IncidentEvent tipo EVIDENCE_ADDED.
+
+
+--------------------------------------------------------------------------------
+10. RECURSOS — REGLAS DE DETECCIÓN
+--------------------------------------------------------------------------------
+
+10.1 GET /api/v1/rules
+
+  Filtros: enabled=true|false
+
+  Response 200: lista de Rule (paginada si muchas):
+
+    {
+      "id": "uuid",
+      "name": "string",
+      "enabled": true,
+      "targetService": "string | null",
+      "conditionSummary": "string legible",  // ej. "error_rate > 5% 5m"
+      "createdAt": "ISO",
+      "updatedAt": "ISO"
+    }
+
+10.2 GET /api/v1/rules/{ruleId}
+
+  Response 200: detalle para edición/visualización:
+
+    {
+      "id": "uuid",
+      "name": "string",
+      "enabled": true,
+      "targetService": "string | null",
+      "metricKey": "string",        // convención interna
+      "threshold": 0.05,
+      "windowMinutes": 5,
+      "comparison": "GT | LT | GTE | LTE",
+      "dedupeFingerprintTemplate": "string | null"
+    }
+
+  Nota: el contrato puede anidarse en "definition": { } si preferís evolucionar
+  sin romper clientes.
+
+10.3 POST /api/v1/rules | PATCH /api/v1/rules/{ruleId}
+
+  Roles: EDITOR+ (o solo seed por fichero en MVP — si no hay UI de reglas,
+  documentar que son solo lectura y POST devuelve 403).
+
+10.4 POST /api/v1/rules/{ruleId}/evaluate  (opcional)
+
+  Forzar evaluación manual para demo; Response 202 + job id o 200 si síncrono.
+
+
+--------------------------------------------------------------------------------
+11. RECURSOS — SEÑALES (SIGNALS)
+--------------------------------------------------------------------------------
+
+11.1 GET /api/v1/signals
+
+  Filtros:
+    state
+    incidentId
+    ruleId
+    from, to  (sobre occurredAt)
+
+  Response 200: página de Signal:
+
+    {
+      "id": "uuid",
+      "ruleId": "uuid",
+      "status": "OPEN",
+      "fingerprint": "string",
+      "occurredAt": "ISO",
+      "incidentId": "uuid | null",
+      "payload": {
+        "observedValue": 0.12,
+        "threshold": 0.05,
+        "window": { "from": "ISO", "to": "ISO" }
+      }
+    }
+
+11.2 GET /api/v1/signals/{signalId}
+
+  Response 200: igual con más detalle si aplica.
+
+11.3 PATCH /api/v1/signals/{signalId}
+
+  Roles: EDITOR+ — ACK, SUPPRESSED, vincular a incidente manualmente si negocio
+  lo permite.
+
+
+--------------------------------------------------------------------------------
+12. RECURSOS — CORRELACIÓN (ANÁLISIS)
+--------------------------------------------------------------------------------
+
+12.1 GET /api/v1/incidents/{incidentId}/correlation
+
+  Respuesta 200: vista materializada o calculada bajo demanda:
+
+    {
+      "incidentId": "uuid",
+      "methods": [ "TRACE_ID", "TIME_WINDOW" ],
+      "traceCorrelations": [
+        {
+          "traceId": "string",
+          "services": [ "order", "payment" ],
+          "errorSpans": [ { "spanId": "...", "service": "payment" } ]
+        }
+      ],
+      "serviceGraph": {
+        "nodes": [ { "id": "order", "label": "order" } ],
+        "edges": [ { "from": "order", "to": "payment", "count": 42 } ]
+      },
+      "computedAt": "ISO",
+      "ttlSeconds": 60
+    }
+
+  Errores: 404 incidente; 503 si backend observabilidad caído (DEPENDENCY_DOWN).
+
+12.2 POST /api/v1/incidents/{incidentId}/correlation:refresh
+
+  Roles: EDITOR+ — invalida caché y recalcula (útil para demo).
+
+
+--------------------------------------------------------------------------------
+13. RECURSOS — IA (GOBERNADA)
+--------------------------------------------------------------------------------
+
+13.1 POST /api/v1/incidents/{incidentId}/ai/summary
+
+  Roles: EDITOR+
+
+  Request:
+    {
+      "mode": "EXEC_AND_TECH | HYPOTHESES_ONLY",
+      "includeKnowledge": true,
+      "maxHypotheses": 5
+    }
+
+  Response 200:
+    {
+      "incidentId": "uuid",
+      "model": "string",
+      "promptVersion": "string",
+      "executiveSummary": "string",
+      "technicalSummary": "string",
+      "hypotheses": [
+        {
+          "statement": "string",
+          "confidence": "LOW | MEDIUM | HIGH",
+          "evidenceRefs": [ { "type": "TRACE", "ref": "..." } ],
+          "requiresManualVerification": true
+        }
+      ],
+      "knowledgeCitations": [
+        { "documentId": "uuid", "chunkId": "uuid", "excerpt": "string" }
+      ],
+      "createdAt": "ISO"
+    }
+
+  Efecto colateral: crear IncidentEvent IA_SUMMARY con payload resumido + ids.
+
+  Errores: 429 IA_QUOTA_EXCEEDED; 503 DEPENDENCY_DOWN (LLM).
+
+13.2 POST /api/v1/knowledge/query  (RAG libre acotado)
+
+  Request:
+    {
+      "question": "string",
+      "incidentId": "uuid | null",
+      "topK": 5
+    }
+
+  Response 200:
+    {
+      "answer": "string",
+      "citations": [
+        { "documentId": "uuid", "chunkId": "uuid", "score": 0.87, "title": "..." }
+      ]
+    }
+
+13.3 POST /api/v1/incidents/{incidentId}/ai/feedback
+
+  Request:
+    {
+      "targetType": "IA_SUMMARY",
+      "targetId": "uuid del evento o de la salida",
+      "helpful": true,
+      "comment": "string | null"
+    }
+
+  Response 204 No Content.
+
+
+--------------------------------------------------------------------------------
+14. RECURSOS — BASE DE CONOCIMIENTO (DOCUMENTOS)
+--------------------------------------------------------------------------------
+
+14.1 GET /api/v1/knowledge/documents
+
+  Response 200: lista de metadatos:
+
+    { "id": "uuid", "title": "string", "sourceType": "MARKDOWN | OPENAPI", "createdAt": "ISO" }
+
+14.2 POST /api/v1/knowledge/documents
+
+  Roles: EDITOR+
+
+  Opción A — multipart upload de fichero.
+  Opción B — JSON con contenido inline para demo pequeña:
+
+    { "title": "...", "sourceType": "MARKDOWN", "content": "..." }
+
+  Response 201 + id; proceso de chunking/embeddings asíncrono: 202 + job id
+  o estado en GET.
+
+14.3 GET /api/v1/knowledge/documents/{documentId}
+
+  Incluir estado de indexación: PENDING | READY | FAILED.
+
+14.4 DELETE /api/v1/knowledge/documents/{documentId}
+
+  Roles: EDITOR+
+
+
+--------------------------------------------------------------------------------
+15. EVENTOS ASÍNCRONOS (INTERNO / FUTURO WEBHOOK)
+--------------------------------------------------------------------------------
+
+  MVP: no exponer webhooks públicos. Los "eventos" del dominio son principalmente:
+
+    - Filas en IncidentEvent vía API síncrona o jobs internos.
+
+  Futuro (documentar como extensión):
+
+    - Webhook saliente: incident.opened, incident.resolved con firma HMAC.
+    - SSE: GET /api/v1/stream/incidents para push a UI.
+
+
+--------------------------------------------------------------------------------
+16. SALUD Y METADATOS
+--------------------------------------------------------------------------------
+
+  GET /health o Actuator:
+    { "status": "UP", "components": { "db": "UP" } }
+
+  GET /api/v1/meta (opcional):
+    {
+      "apiVersion": "1.0.0",
+      "build": "git-sha",
+      "features": { "aiEnabled": true, "ragEnabled": true }
+    }
+
+
+--------------------------------------------------------------------------------
+17. COMPATIBILIDAD Y CAMBIOS
+--------------------------------------------------------------------------------
+
+  - Campos nuevos en respuestas: añadir sin romper clientes (ignorar desconocidos).
+  - Campos nuevos obligatorios en requests: implica bump de versión o defaults.
+  - Renombrar o eliminar campos: nueva versión /api/v2 o periodo de deprecación
+    documentado en README.
+
+
+--------------------------------------------------------------------------------
+18. CHECKLIST DE IMPLEMENTACIÓN (PARA NO DERIVAR)
+--------------------------------------------------------------------------------
+
+  [ ] Todos los errores usan el mismo envelope Problem + code estable.
+  [ ] Listas paginadas donde el volumen puede crecer (incidents, events, signals).
+  [ ] IncidentEvent.payload tiene convención por type documentada.
+  [ ] IA: POST summary crea evento de auditoría en timeline.
+  [ ] Correlación y evidencia referencian sistemas externos sin copiar masivamente datos.
+
+
+================================================================================
+  FIN DEL CONTRATO API (MVP → extensible)
+================================================================================

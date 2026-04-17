@@ -1,0 +1,257 @@
+================================================================================
+  SERVICELENS (nombre de trabajo)
+  Plataforma inteligente de análisis de incidencias — objetivos y backlog
+  Documento vivo: revisar al cerrar cada fase / sprint
+================================================================================
+
+ÚLTIMA REVISIÓN: 2026-04-16
+
+DOCUMENTOS RELACIONADOS:
+  - CONTRATO-API.txt — contrato REST (recursos, errores, enums, convenciones).
+  - GUION-DEMO.txt — guión de demo por escenas, telemetría esperada, mapeo a API.
+  - POLITICA-IA.txt — gobernanza IA: contexto, RAG, límites, anti-alucinación.
+
+
+--------------------------------------------------------------------------------
+1. VISIÓN (NO NEGOCIABLE)
+--------------------------------------------------------------------------------
+
+Construir una herramienta tipo producto interno que:
+  - Ingeste y explote logs, métricas y trazas de sistemas distribuidos.
+  - Detecte degradación y errores con lógica real (reglas + correlación).
+  - Agrupe y correlacione señales en INCIDENTES auditables (timeline + evidencia).
+  - Use IA para resumir, proponer hipótesis y navegar documentación, SIN ser
+    un "chat decorativo": toda afirmación fuerte debe poder atarse a evidencia.
+
+Lo que NO es el proyecto: CRUD genérico, e-commerce, IA sin trazabilidad.
+
+
+--------------------------------------------------------------------------------
+2. OBJETIVO FINAL (DEFINICIÓN DE "TERMINADO" DEL PORTFOLIO)
+--------------------------------------------------------------------------------
+
+El proyecto se considera "completo" para portfolio cuando:
+
+  [ ] Stack local reproducible (p. ej. Compose) con observabilidad real
+      (OTel, métricas, logs, trazas) y apps demo instrumentadas.
+
+  [ ] Modelo de incidente en base de datos: estado, severidad, timeline,
+      eventos y referencias a evidencia (trace/log/métrica/doc).
+
+  [ ] Motor de detección basado en REGLAS (umbrales/ventanas) con deduplicación
+      básica y señales vinculables a incidentes.
+
+  [ ] Correlación demostrable: al menos por trace_id y ventana temporal + grafo
+      simple de dependencias entre servicios (derivado de trazas).
+
+  [ ] IA: resumen + hipótesis con sección de evidencia; RAG sobre documentación
+      técnica ingerida; versionado simple de salidas IA.
+
+  [ ] Frontend profesional: lista + detalle de incidente, timeline, enlaces a
+      Grafana/exploradores, sin depender solo del chat.
+
+  [ ] README + guión de demo (5–10 min) + limitaciones honestas.
+
+Objetivo de credibilidad: un visitante entiende en 30–60 s QUÉ observas,
+QUÉ objeto produces (incidente) y CÓMO validas una conclusión.
+
+
+--------------------------------------------------------------------------------
+3. PRINCIPIOS PARA NO PERDER EL RUMBO
+--------------------------------------------------------------------------------
+
+  P1. El incidente es el agregado raíz; la IA asiste, no sustituye la correlación.
+  P2. Preferir referencias a sistemas de observabilidad (queries, IDs) antes que
+      copiar masivamente telemetría en Postgres.
+  P3. MVP = correlación + reglas + evidencia + RAG; no mini Datadog completo.
+  P4. Un comando o flujo documentado que levante todo el entorno demo.
+  P5. Congelar alcance por sprint; lo "nice" va al final del archivo (sección 8).
+
+
+--------------------------------------------------------------------------------
+4. FASES DE ALTO NIVEL (MAPA HACIA EL OBJETIVO FINAL)
+--------------------------------------------------------------------------------
+
+  Fase A — Cimientos de observabilidad
+    OTel en servicios demo, collector, Prometheus/Loki/Tempo, Grafana con
+    dashboards mínimos; logs con trace_id donde aplique.
+
+  Fase B — Dominio incidente + API
+    Persistencia incidente/eventos/evidencia; API REST; JWT y roles mínimos;
+    UI lista/detalle básica.
+
+  Fase C — Detección
+    Motor de reglas + señales + apertura/actualización de incidentes + dedupe.
+
+  Fase D — Correlación
+    Cadena por trace, ventana temporal, grafo servicio→servicio en ventana.
+
+  Fase E — IA gobernada
+    Resumen e hipótesis con plantillas; RAG; citas obligatorias; caché/límites;
+    registro de modelo/prompt version.
+
+  Fase F — Pulido portfolio
+    Seed de datos, escenarios de fallo reproducibles, README, demo script,
+    observabilidad de la propia plataforma (health, logs estructurados).
+
+  Fase G (opcional) — Ampliación
+    Correlación semántica de errores, postmortems históricos, cloud/Terraform,
+    integraciones externas, agente con herramientas acotadas.
+
+
+--------------------------------------------------------------------------------
+5. BACKLOG PRIORIZADO — SPRINTS (PUNTO A)
+--------------------------------------------------------------------------------
+
+Convención:
+  - Prioridad: P0 > P1 > P2 dentro del sprint.
+  - "Done" = criterios de aceptación cumplidos + notas en README si afecta demo.
+
+--- SPRINT 1 — "Observabilidad real + monolito API" --------------------------------
+
+  Objetivo sprint: Telemetría de punta a punta en entorno local y esqueleto
+  de aplicación (API + DB) sin incidentes completos aún si hace falta.
+
+  US-1.1  [P0] Como desarrollador, quiero un docker-compose (o equivalente) que
+        levante bases de observabilidad + Postgres + collector para poder
+        reproducir el entorno en otra máquina.
+        DoD: README con prerequisitos; un comando documentado; servicios healthy.
+
+  US-1.2  [P0] Como sistema demo, quiero 2–5 servicios Spring Boot con OTel
+        exportando trazas y métricas hacia el collector.
+        DoD: trace multi-servicio visible en backend de trazas; service.name consistente.
+
+  US-1.3  [P0] Como sistema demo, quiero logs JSON (o estructurados) con
+        trace_id cuando exista correlación.
+        DoD: en escenario guiado, log y span comparten trace_id.
+
+  US-1.4  [P0] Como ingeniero, quiero dashboards Grafana mínimos (latencia,
+        errores por servicio) para validar la historia de la demo.
+        DoD: captura o enlace en README; variables de datasource documentadas.
+
+  US-1.5  [P1] Como backend, quiero aplicación Spring Boot con Postgres con
+        migraciones y healthcheck.
+        DoD: /health (o actuator); conexión DB; perfil dev documentado.
+
+--- SPRINT 2 — "Incidente como objeto + UI mínima" ---------------------------------
+
+  Objetivo sprint: Primer flujo manual: crear/listar/ver incidente y eventos.
+
+  US-2.1  [P0] Como usuario autenticado, quiero CRUD mínimo de incidentes
+        (crear, listar, ver, cambiar estado) con campos: título, estado,
+        severidad, ventana temporal.
+        DoD: contrato API estable; validación básica; estados definidos (OPEN/ACK/RESOLVED).
+
+  US-2.2  [P0] Como usuario, quiero añadir eventos al incidente (alerta simulada,
+        nota humana) ordenados en timeline.
+        DoD: orden cronológico; tipos de evento enumerados.
+
+  US-2.3  [P0] Como usuario, quiero adjuntar "evidencia" como referencia externa
+        (tipo TRACE / LOG_QUERY / METRIC_QUERY / DOC_CHUNK) sin duplicar todo
+        el payload de observabilidad.
+        DoD: al menos un tipo funcional end-to-end en UI o API documentada.
+
+  US-2.4  [P1] Como usuario, quiero autenticación JWT y rol mínimo VIEWER/EDITOR.
+        DoD: endpoints sensibles protegidos; variables de entorno documentadas.
+
+  US-2.5  [P1] Como visitante del portfolio, quiero una UI Angular con lista
+        y detalle de incidente usable aunque sea sobria.
+        DoD: navegación clara; detalle muestra timeline.
+
+--- SPRINT 3 — "Detección + señales + apertura automática" -------------------------
+
+  Objetivo sprint: El sistema abre/actualiza incidentes por reglas; menos ruido.
+
+  US-3.1  [P0] Como operador, quiero definir reglas (servicio, métrica/condición,
+        umbral, ventana) evaluadas de forma periódica o por batch aceptable.
+        DoD: al menos 2 reglas demo (p. ej. error rate, latencia p95).
+
+  US-3.2  [P0] Como sistema, quiero emitir SEÑALES cuando se cumpla una regla,
+        con deduplicación básica (misma regla + misma ventana → una señal o update).
+        DoD: documentación del algoritmo de dedupe; métrica/logs de evaluación.
+
+  US-3.3  [P0] Como sistema, quiero crear o vincular incidentes automáticamente
+        a partir de señales según reglas de agrupación documentadas.
+        DoD: escenario demo: fallo inyectado → incidente OPEN en tiempo acotado.
+
+  US-3.4  [P1] Como usuario, quiero ver en el detalle el origen (regla + query
+        o parámetros) que disparó la señal.
+        DoD: evento de incidente con payload legible.
+
+--- SPRINT 4 — "Correlación + IA con evidencia + demo cerrada" ---------------------
+
+  Objetivo sprint: Correlación creíble + primera IA útil + paquete portfolio.
+
+  US-4.1  [P0] Como sistema, quiero correlación por trace_id entre logs/trazas
+        referenciadas en un incidente.
+        DoD: escenario demo con cadena de error trazable en UI.
+
+  US-4.2  [P0] Como sistema, quiero correlación temporal y grafo simple A→B
+        derivado de spans en una ventana (frecuencia mínima documentada).
+        DoD: visualización o lista de aristas; explicación en README.
+
+  US-4.3  [P0] Como usuario, quiero un resumen de incidente generado por IA con
+        secciones fijas: resumen ejecutivo, hallazgos técnicos, hipótesis,
+        evidencia (citas/queries), siguientes pasos.
+        DoD: hipótesis sin evidencia marcadas como "baja confianza" o no permitidas.
+
+  US-4.4  [P0] Como usuario, quiero RAG sobre documentación ingerida (OpenAPI/
+        Markdown) con referencia al chunk o documento fuente.
+        DoD: al menos 3 documentos demo indexados; respuesta con cita.
+
+  US-4.5  [P1] Como operador, quiero feedback simple ("útil / no útil") sobre
+        una salida IA para demostrar gobernanza y mejora futura.
+        DoD: persistido en DB o evento; opcional en UI.
+
+  US-4.6  [P0] Como revisor de portfolio, quiero README con arquitectura,
+        guión de demo 5–10 min, limitaciones y cómo inyectar fallos.
+        DoD: checklist al final de este archivo (sección 7) cumplida.
+
+--------------------------------------------------------------------------------
+6. DEFINITION OF DONE (GLOBAL)
+--------------------------------------------------------------------------------
+
+  - Criterios de la US cumplidos y verificables en entorno local.
+  - Sin depender de pasos manuales no documentados para la demo principal.
+  - Si introduce configuración nueva: .env.example o tabla en README.
+  - Si toca IA: límites/coste y datos enviados al LLM descritos honestamente.
+
+
+--------------------------------------------------------------------------------
+7. CHECKLIST FINAL ANTES DE PUBLICAR / ENVIAR CV
+--------------------------------------------------------------------------------
+
+  [ ] compose up funciona en máquina limpia (o pasos equivalentes documentados).
+  [ ] Demo principal reproducible (fallo inyectado → incidente → evidencia).
+  [ ] Grafana accesible con dashboards seed.
+  [ ] Incidente muestra timeline + al menos una correlación no trivial.
+  [ ] IA muestra evidencia o el README explica modo degradado sin API key.
+  [ ] Diagrama de arquitectura en README (imagen o ASCII).
+  [ ] Sección "No es un chat con logs" con bullets concretos.
+
+
+--------------------------------------------------------------------------------
+8. NICE TO HAVE (NO BLOQUEAN EL OBJETIVO FINAL DEL PORTFOLIO)
+--------------------------------------------------------------------------------
+
+  - Multi-tenant / equipos.
+  - Integración Slack / PagerDuty / webhooks salientes.
+  - Correlación por embeddings de mensajes de error (clustering).
+  - SLO / error budget / burn rate completo.
+  - Despliegue K8s + GitOps.
+  - Agente autónomo multi-paso (solo si hay budget de estabilización).
+  - Suite de tests de carga representativa.
+
+
+--------------------------------------------------------------------------------
+9. SI EL PROYECTO SE ATASCA
+--------------------------------------------------------------------------------
+
+  1. Reducir a 3 servicios demo y UN escenario de fallo impecable.
+  2. Separar "modo demo sin IA" (siempre funcional) vs "con API key".
+  3. Releer sección 2 (objetivo final) y tachar lo ya hecho; reordenar sprints.
+
+
+================================================================================
+  FIN DEL DOCUMENTO
+================================================================================

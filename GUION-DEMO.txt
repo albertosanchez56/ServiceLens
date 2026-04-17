@@ -1,0 +1,314 @@
+================================================================================
+  SERVICELENS — Guión de demo (punto C)
+  Escenas, telemetría esperada y mapeo a CONTRATO-API.txt
+  Duración objetivo: 8–12 minutos (ajustable a 5 min en modo corto)
+================================================================================
+
+ÚLTIMA REVISIÓN: 2026-04-16
+DOCUMENTOS RELACIONADOS: OBJETIVOS-Y-BACKLOG.txt, CONTRATO-API.txt
+
+
+--------------------------------------------------------------------------------
+0. PROPÓSITO DE ESTE DOCUMENTO
+--------------------------------------------------------------------------------
+
+  - Servir de guía al presentar el proyecto (GitHub, entrevista, grabación).
+  - Alinear la demo con el contrato API: cada escena indica qué endpoints
+    "cuentan la historia" (aunque la UI los oculte).
+  - Definir QUÉ debe verse en Grafana / trazas / logs en cada paso, para no
+    depender de improvisación el día de la demo.
+
+  Modo corto (~5 min): escenas 1 + 2 (solo baseline) + 4 + 6 + cierre 8.
+  Modo completo (~10 min): todas las escenas en orden.
+
+
+--------------------------------------------------------------------------------
+1. HISTORIA DE LA DEMO (ELEVATOR PITCH DE 20 SEGUNDOS)
+--------------------------------------------------------------------------------
+
+  "Tenemos un flujo checkout en varios microservicios. ServiceLens no es un chat
+  con logs: detecta degradación con reglas, abre un incidente con timeline,
+  correlaciona trazas y métricas, y la IA resume con hipótesis citando evidencia
+  y documentación indexada."
+
+
+--------------------------------------------------------------------------------
+2. PREREQUISITOS ANTES DE PULSAR "GRABAR"
+--------------------------------------------------------------------------------
+
+  [ ] docker compose up (o equivalente) sin errores; Grafana en puerto conocido.
+  [ ] Usuario demo para login (si aplica): credenciales en .env.example.
+  [ ] Reglas de detección seed (ej. latencia p95 o error rate en `payment`).
+  [ ] Documentación RAG seed (al menos 1 Markdown de runbook + OpenAPI opcional).
+  [ ] API key de LLM configurada O modo degradado documentado (sin IA en vivo).
+  [ ] Navegador con pestaña 1: ServiceLens UI; pestaña 2: Grafana; opcional 3: Explore.
+
+  Guion de respaldo: si el LLM falla, mostrar incidente + correlación + evento
+  IA_SUMMARY precargado en seed (menos impresionante pero honesto).
+
+
+--------------------------------------------------------------------------------
+3. ESCENARIO TÉCNICO FICTIONAL (COHERENTE CON LA TELEMETRÍA)
+--------------------------------------------------------------------------------
+
+  Servicios sugeridos (nombres estables en `service.name`):
+    - `edge-api`     — entrada HTTP, llama a checkout.
+    - `checkout`    — orquesta el pedido.
+    - `payment`     — dependencia externa simulada; aquí inyectamos fallo/latencia.
+    - (opcional) `inventory` — segunda causa para grafo más rico.
+
+  Flujo feliz: GET/POST checkout → llamadas internas con trace único propagado.
+
+  Fallo demo (elegir UNO como principal):
+    F1. Latencia elevada en `payment` (timeout aguas arriba).
+    F2. Tasa de error 5xx en `payment`.
+    F3. Error en cadena: `checkout` compensa y eleva error al cliente.
+
+  Métricas mínimas visibles en Grafana:
+    - Latencia p95 por servicio (histograma o panel equivalente).
+    - Tasa de error por servicio.
+    - (Opcional) saturación o cola si lo simuláis.
+
+
+--------------------------------------------------------------------------------
+4. GUIÓN POR ESCENAS
+--------------------------------------------------------------------------------
+
+  Leyenda por escena:
+    NARRADOR     — qué decir / qué mostrar.
+    TELEMETRÍA   — qué debe verse en Prometheus/Loki/Tempo/Grafana.
+    API          — endpoints del contrato que sustentan la escena (UI o curl).
+
+
+================================================================================
+ESCENA 1 — Contexto y salud del entorno (~1 min)
+================================================================================
+
+  NARRADOR:
+    "Antes de romper nada, enseño que el stack de observabilidad está vivo:
+    métricas, logs y trazas entran. Esto es la base; lo demás es producto."
+
+  TELEMETRÍA:
+    - Grafana: dashboard "Overview" con tráfico no nulo en los últimos minutos.
+    - Explorar trazas: al menos un trace reciente que cruce 2 servicios.
+    - (Opcional) Loki: query por service_name con líneas JSON.
+
+  API:
+    - GET /health o Actuator — estado UP.
+    - GET /api/v1/meta (si existe) — features aiEnabled/ragEnabled.
+
+  NOTA: Si no hay tráfico, lanzar 5–10 requests al flujo feliz ANTES de la demo.
+
+
+================================================================================
+ESCENA 2 — Baseline: flujo feliz y trace limpio (~1,5 min)
+================================================================================
+
+  NARRADOR:
+    "Genero carga normal: vemos un trace limpio de punta a punta y latencias
+    dentro de rango. Esto nos da la línea base frente a la que dispararemos reglas."
+
+  TELEMETRÍA:
+    - Nuevo trace: spans `edge-api` → `checkout` → `payment` sin error.
+    - Métricas: p95 de `payment` por debajo del umbral configurado en la regla.
+    - Logs: sin ERROR en `payment` para esos trace_id (o nivel esperado).
+
+  API:
+    - (Opcional) POST /api/v1/auth/login → token para la UI.
+    - GET /api/v1/incidents?state=OPEN — lista vacía o sin incidentes nuevos.
+
+  ACCIÓN:
+    Script o curl repetido al endpoint de checkout demo (documentado en README).
+
+
+================================================================================
+ESCENA 3 — Inyección del fallo (~1 min)
+================================================================================
+
+  NARRADOR:
+    "Ahora inyecto el fallo documentado: [latencia / error rate / dependencia
+    caída]. No es magia: es un toggle o script en el repo, reproducible."
+
+  TELEMETRÍA:
+    - Tras N segundos: subida clara de p95 o de errores en panel de `payment`.
+    - Logs: aparecen ERROR o timeouts con el mismo patrón repetible.
+    - Trazas: spans en error o latencia anómala en `payment`.
+
+  API:
+    - Aún sin incidente si el motor evalúa en batch; si es near-real-time, preparar
+      transición a escena 4 en 30–120 s.
+
+  ACCIÓN:
+    Ejecutar comando/documentación exacta del README (no improvisar).
+
+
+================================================================================
+ESCENA 4 — Detección: regla → señal → incidente (~2 min)
+================================================================================
+
+  NARRADOR:
+    "ServiceLens evalúa reglas sobre métricas reales: no es el LLM quien 'adivina'.
+    Cuando se supera el umbral, hay una señal y se abre o actualiza un incidente."
+
+  TELEMETRÍA:
+    - Grafana: el panel muestra el cruce del umbral (anotación o valor rojo).
+    - (Opcional) Alertmanager si lo usáis; no obligatorio para la historia.
+
+  API (orden lógico):
+    - GET /api/v1/rules — regla `payment` visible y enabled.
+    - GET /api/v1/signals?ruleId=…&from=… — nueva señal con fingerprint.
+    - GET /api/v1/incidents — aparece incidente OPEN nuevo o actualizado.
+    - GET /api/v1/incidents/{id} — detalle con severidad y tiempos.
+
+  UI:
+    - Lista de incidentes: nuevo ítem en cabecera o filtrado por tiempo.
+
+  PUNTO CLAVE PARA ENTREVISTA:
+    "La regla y la ventana temporal están en el payload o en rule detail;
+    la señal enlaza la regla con valores observados."
+
+
+================================================================================
+ESCENA 5 — Timeline y evidencia (~2 min)
+================================================================================
+
+  NARRADOR:
+    "El incidente es un objeto: timeline con eventos ordenados. Las evidencias
+    son referencias a consultas en Grafana/Loki/Tempo, no un volcado gigante en SQL."
+
+  TELEMETRÍA:
+    - Copiar de Grafana una URL de Explore (logs o métricas) acotada al incidente.
+
+  API:
+    - GET /api/v1/incidents/{id}/events?sort=… — eventos ALERT_TRIGGERED,
+      SIGNAL_LINKED en orden.
+    - GET /api/v1/incidents/{id}/evidence — al menos METRIC_QUERY o LOG_QUERY.
+    - POST /api/v1/incidents/{id}/evidence (opcional en vivo) — añadir enlace
+      manual para demostrar flujo EDITOR.
+
+  UI:
+    - Detalle: timeline + panel de evidencias con enlaces externos.
+
+
+================================================================================
+ESCENA 6 — Correlación: trace + ventana + grafo (~2 min)
+================================================================================
+
+  NARRADOR:
+    "Aquí está la correlación dura: mismo trace_id en log y traza; cadena de
+    servicios en una ventana. El grafo A→B viene de dependencias observadas en
+    spans, no de un diagrama dibujado a mano."
+
+  TELEMETRÍA:
+    - Tempo/Jaeger: abrir trace_id concreto del incidente (desde evidencia o UI).
+    - Ver span fallido o lento en `payment` y padre en `checkout`.
+
+  API:
+    - GET /api/v1/incidents/{id}/correlation
+        → traceCorrelations con traceId y services.
+        → serviceGraph con edges order→payment (mínimo viable).
+    - POST /api/v1/incidents/{id}/correlation:refresh (si la demo necesita forzar
+      recálculo en vivo).
+
+  NARRADOR (frase de cierre de escena):
+    "Si esto falla, el producto falla; la IA solo ayuda a contarlo con citas."
+
+
+================================================================================
+ESCENA 7 — IA gobernada: resumen + hipótesis + RAG (~2,5 min)
+================================================================================
+
+  NARRADOR:
+    "Pido un resumen e hipótesis. Cada hipótesis fuerte debe traer evidencia
+    o quedar marcada como verificación manual. Pregunto al runbook indexado y
+    citan el fragmento."
+
+  TELEMETRÍA:
+    - N/A directa; la evidencia sigue siendo la de escenas 5–6.
+
+  API:
+    - POST /api/v1/incidents/{id}/ai/summary
+        body: { "mode": "EXEC_AND_TECH", "includeKnowledge": true }
+        → hypotheses[].evidenceRefs pobladas; knowledgeCitations no vacías si RAG OK.
+    - GET /api/v1/incidents/{id}/events — nuevo IA_SUMMARY en timeline.
+    - POST /api/v1/knowledge/query — pregunta acotada: "¿Qué hace payment ante timeout?"
+        → answer + citations[].
+
+  UI:
+    - Panel IA con secciones fijas; clic en cita abre documento o fragmento.
+
+  PLAN B (sin LLM en vivo):
+    Mostrar evento IA_SUMMARY precargado + mismo contrato JSON en README.
+
+
+================================================================================
+ESCENA 8 — Cierre operativo: ACK, nota, RESOLVED (~1 min)
+================================================================================
+
+  NARRADOR:
+    "Cierro el ciclo como haría un equipo: reconozco, dejo nota corta, resuelvo.
+    El incidente queda auditado."
+
+  API:
+    - PATCH /api/v1/incidents/{id} — state: ACK luego RESOLVED.
+    - POST /api/v1/incidents/{id}/events — type HUMAN_NOTE, payload texto breve.
+    - POST /api/v1/incidents/{id}/ai/feedback — helpful: true/false (opcional).
+
+  TELEMETRÍA:
+    - (Opcional) Volver a baseline tras quitar el fallo; panel verde.
+
+
+================================================================================
+ESCENA 9 — Cierre para el portfolio (~30 s)
+================================================================================
+
+  NARRADOR:
+    "El código está en el repo: Compose, reglas seed, guión, contrato API.
+    Limitaciones: [volumen, retención, sin multi-tenant]. Próximo paso: [grafo
+    semántico / SLO burn / integración X]."
+
+  Mostrar en pantalla:
+    - README: sección arquitectura + enlace a CONTRATO-API.txt + este guión.
+
+
+--------------------------------------------------------------------------------
+5. TABLA RÁPIDA ESCENA → ENDPOINTS (CHEAT SHEET)
+--------------------------------------------------------------------------------
+
+  Escena | Endpoints principales (CONTRATO-API.txt)
+  -------+------------------------------------------------------------------
+  1      | GET /health, GET /api/v1/meta
+  2      | POST /auth/login, GET /incidents
+  3      | (inyección externa; telemetría en Grafana)
+  4      | GET /rules, GET /signals, GET /incidents, GET /incidents/{id}
+  5      | GET /incidents/{id}/events, GET|POST /incidents/{id}/evidence
+  6      | GET /incidents/{id}/correlation, POST .../correlation:refresh
+  7      | POST /incidents/{id}/ai/summary, POST /knowledge/query, GET .../events
+  8      | PATCH /incidents/{id}, POST .../events, POST .../ai/feedback
+
+
+--------------------------------------------------------------------------------
+6. FRASES ÚTILES EN ENTREVISTA (ANTI-"ES UN CHAT")
+--------------------------------------------------------------------------------
+
+  - "Las reglas disparan sobre series reales; el LLM no evalúa umbrales."
+  - "La correlación viene de trace_id y del grafo derivado de spans."
+  - "Las hipótesis llevan evidenceRefs; si no, bajan de confianza o no salen."
+  - "RAG cita chunks; si el modelo alucina, lo contrastáis con trace en Tempo."
+
+
+--------------------------------------------------------------------------------
+7. CHECKLIST POST-DEMO (AUTOEVALUACIÓN)
+--------------------------------------------------------------------------------
+
+  [ ] ¿Se vio un trace multi-servicio antes del fallo?
+  [ ] ¿Se vio el cruce de umbral o error rate en Grafana?
+  [ ] ¿El incidente tenía timeline con al menos 2 tipos de evento distintos?
+  [ ] ¿La correlación mostró traceId y servicios coherentes con Grafana?
+  [ ] ¿La IA mostró citas (evidencia o documentación) o se explicó el plan B?
+  [ ] ¿Todo lo ejecutado está en README sin pasos ocultos?
+
+
+================================================================================
+  FIN DEL GUIÓN DEMO
+================================================================================

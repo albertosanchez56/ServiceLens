@@ -1,0 +1,5 @@
+# Perfil activado en docker-compose (SPRING_PROFILES_ACTIVE=docker)
+management:
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces

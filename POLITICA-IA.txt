@@ -1,0 +1,307 @@
+================================================================================
+  SERVICELENS — Política de IA (punto D)
+  Plantillas, límites, formato de salida, RAG, privacidad y anti-alucinación
+  Alineado con CONTRATO-API.txt (sección 13) y GUION-DEMO.txt (escena 7)
+================================================================================
+
+ÚLTIMA REVISIÓN: 2026-04-16
+DOCUMENTOS RELACIONADOS: OBJETIVOS-Y-BACKLOG.txt, CONTRATO-API.txt, GUION-DEMO.txt
+
+
+--------------------------------------------------------------------------------
+1. PRINCIPIOS (NO NEGOCIABLES)
+--------------------------------------------------------------------------------
+
+  P-IA-1  La IA **no** evalúa umbrales ni dispara alertas; eso es reglas + motor
+          de detección (telemetría cuantificable).
+
+  P-IA-2  La IA **no** sustituye la correlación estructural (trace_id, ventana,
+          grafo); como mucho **narra** y **prioriza** sobre resultados ya calculados
+          o sobre fragmentos de telemetría **incluidos explícitamente** en contexto.
+
+  P-IA-3  Toda salida expuesta al usuario debe poder **atarse** a:
+          (a) evidencia técnica referenciable (TRACE / LOG_QUERY / METRIC_QUERY), y/o
+          (b) cita de documentación (DOC_CHUNK / knowledgeCitations).
+
+  P-IA-4  Si no hay evidencia suficiente, la salida debe decirlo en lenguaje claro
+          y marcar hipótesis como **LOW** o `requiresManualVerification: true`.
+
+  P-IA-5  Los datos enviados al proveedor LLM deben ser **mínimos**, **acotados** y
+          **redactados** según política de secretos (sección 4).
+
+
+--------------------------------------------------------------------------------
+2. ALCANCE FUNCIONAL DE LA IA EN EL MVP
+--------------------------------------------------------------------------------
+
+  Incluido:
+    - Resumen ejecutivo y técnico del incidente (POST .../ai/summary).
+    - Lista corta de hipótesis con `confidence` y `evidenceRefs`.
+    - RAG sobre documentación indexada (POST /knowledge/query y citations en summary).
+    - Registro de `model` y `promptVersion` en la respuesta y en IncidentEvent.
+
+  Fuera del MVP (no prometer en README salvo roadmap explícito):
+    - Agente autónomo sin límites de pasos.
+    - Ejecución automática de acciones en producción (rollbacks, kill switches).
+    - Entrenamiento fino del modelo con datos del usuario.
+
+
+--------------------------------------------------------------------------------
+3. VERSIONADO DE PROMPTS Y MODELOS
+--------------------------------------------------------------------------------
+
+  3.1 Identificadores
+
+    - `promptVersion`: cadena semántica, ej. `incident-summary@v3`, `rag-answer@v1`.
+    - `model`: identificador del proveedor, ej. `gpt-4.1-mini`, `claude-3-5-sonnet`.
+    - Convención: subir versión mayor si cambia el **esquema JSON** esperado o
+      reglas de confianza; menor si solo se ajusta redacción del system prompt.
+
+  3.2 Persistencia
+
+    - Cada llamada exitosa que genere contenido visible debe dejar rastro en
+      IncidentEvent tipo IA_SUMMARY con: model, promptVersion, ids de evidencia
+      citada, timestamp, hash opcional del prompt renderizado (solo hash, no secretos).
+
+  3.3 Reproducibilidad
+
+    - Guardar en el evento el **modo** solicitado (EXEC_AND_TECH, etc.) y
+      `maxHypotheses` efectivo tras límites del servidor.
+
+
+--------------------------------------------------------------------------------
+4. DATOS QUE PUEDEN ENTRAR AL LLM (CONTEXTO)
+--------------------------------------------------------------------------------
+
+  4.1 Permitido por defecto (MVP)
+
+    - Metadatos del incidente: id, título, estado, severidad, ventana temporal.
+    - Lista **acotada** de eventos de timeline (tipos y payloads **sanitizados**).
+    - Resultado de GET /incidents/{id}/correlation **ya calculado** (JSON resumido).
+    - Hasta N líneas de log o spans **seleccionados por el backend** (no “todo Loki”).
+    - Chunks recuperados por RAG (topK) con id de documento y texto del chunk.
+
+  4.2 Prohibido o a redactar antes de enviar
+
+    - Secretos: API keys, tokens JWT, contraseñas, claves privadas, connection strings
+      completas.
+    - PII: emails, teléfonos, DNI, nombres de clientes si no son necesarios para
+      diagnóstico (en demo: usar datos sintéticos sin PII).
+    - Payloads completos de requests HTTP con cuerpos arbitrarios (solo campos
+      permitidos o hashes).
+
+  4.3 Estrategia de redacción
+
+    - Reglas por patrón (regex) para `authorization`, `password`, `secret`, tarjetas.
+    - Sustituir por `[REDACTED]` manteniendo longitud aproximada opcional para debug.
+    - Tamaño máximo de contexto total (caracteres o tokens) definido en sección 6.
+
+
+--------------------------------------------------------------------------------
+5. RAG (RECUPERACIÓN + GENERACIÓN)
+--------------------------------------------------------------------------------
+
+  5.1 Ingesta
+
+    - Fuentes: Markdown de runbooks, OpenAPI, README internos (demo).
+    - Chunking: tamaño objetivo 400–900 tokens con solape 10–15% (ajustable);
+      nunca mezclar en un chunk dos secciones sin encabezado claro.
+
+  5.2 Embeddings
+
+    - Modelo de embeddings versionado (anotar en README del repo).
+    - Reindexar al cambiar chunking o modelo de embedding.
+
+  5.3 Recuperación
+
+    - `topK` por defecto 5; máximo servidor 10 salvo configuración explícita.
+    - Híbrido recomendable en fase 2: BM25 + vector; MVP puede ser solo vector
+      si la documentación es pequeña.
+
+  5.4 Citas obligatorias
+
+    - Toda afirmación que dependa del runbook debe incluir `documentId` + `chunkId`
+      o equivalente en `knowledgeCitations`.
+    - Si el modelo responde sin chunks recuperados, el system prompt debe forzar:
+      "Si no hay contexto recuperado, dilo y no inventes procedimiento."
+
+  5.5 Respuesta en POST /knowledge/query
+
+    - `answer` debe ser parafraseo basado en `citations[]`; si no hay soporte en
+      chunks, responder con incertidumbre explícita.
+
+
+--------------------------------------------------------------------------------
+6. LÍMITES OPERATIVOS (RATE, TAMAÑO, CACHÉ)
+--------------------------------------------------------------------------------
+
+  6.1 Cuotas por incidente / usuario / ventana
+
+    - Máximo de POST .../ai/summary por incidente: ej. 10 / hora (configurable).
+    - Máximo global diario para entorno demo: definido por variable de entorno;
+      al superar → HTTP 429 `IA_QUOTA_EXCEEDED` (CONTRATO-API).
+
+  6.2 Tokens y salida
+
+    - `max_tokens` de salida acotado (ej. 1.500–2.500) para evitar informes enormes.
+    - `maxHypotheses` en request acotado por servidor (máx. 7 aunque pidan 99).
+
+  6.3 Caché
+
+    - Cachear resumen por (`incidentId`, `promptVersion`, hash de contexto relevante).
+    - Invalidar caché si cambia estado del incidente a RESOLVED o si se añade
+      correlación nueva significativa (política simple: invalidar al PATCH incident
+      o al POST correlation:refresh).
+
+  6.4 Tiempo
+
+    - Timeout al proveedor LLM (ej. 30–60 s); si falla → 503 `DEPENDENCY_DOWN` con
+      mensaje claro; opcionalmente devolver último resumen cacheado con aviso.
+
+
+--------------------------------------------------------------------------------
+7. PARÁMETROS DEL MODELO (TEMPERATURA, ETC.)
+--------------------------------------------------------------------------------
+
+  - Temperatura baja para resúmenes e hipótesis: recomendado **0.1–0.3**.
+  - Top-p moderado si el proveedor lo expone; priorizar determinismo.
+  - Para RAG factual: misma banda de temperatura baja.
+  - No usar modo “creativo” para este dominio en MVP.
+
+
+--------------------------------------------------------------------------------
+8. FORMATO DE SALIDA ESPERADO (ANTES DE VALIDAR)
+--------------------------------------------------------------------------------
+
+  8.1 Contrato
+
+    - La respuesta HTTP debe cumplir el esquema de CONTRATO-API 13.1.
+    - Implementación recomendada: pedir al modelo **solo JSON** que coincida con un
+      subset fijo de campos; rechazar/reintentar si el parseo falla.
+
+  8.2 Reglas de negocio sobre hipótesis
+
+    - `confidence: HIGH` solo si `evidenceRefs.length >= 1` **y** la evidencia
+      existe en el contexto enviado (validación server-side).
+    - Si el modelo devuelve HIGH sin evidencia → degradar a MEDIUM o LOW y añadir
+      `requiresManualVerification: true` (override en servidor).
+
+  8.3 Lenguaje
+
+    - Evitar certeza absoluta (“la causa es…”) sin evidencia; preferir “indicios”,
+      “correlación temporal”, “coincide con”.
+    - Incluir siempre una frase de **limitación**: qué datos no estaban disponibles.
+
+
+--------------------------------------------------------------------------------
+9. PLANTILLAS (SYSTEM / USER) — ESQUEMA CONCEPTUAL
+--------------------------------------------------------------------------------
+
+  No son texto literal obligatorio; son estructura a implementar en código.
+
+  9.1 System prompt base (incident-summary)
+
+    Rol: asistente SRE; tono conciso; no inventar métricas; no ejecutar acciones.
+    Debe: usar solo el contexto proporcionado; citar evidencia; marcar lagunas.
+
+  9.2 User / context bundle (incident-summary)
+
+    Secciones en orden sugerido:
+      A) Ficha del incidente (metadatos).
+      B) Resumen de correlación (traceIds, grafo en texto breve).
+      C) Evidencia seleccionada (queries, ids; sin volcados masivos).
+      D) Chunks RAG con etiquetas [DOC 1], [DOC 2] para forzar referencia.
+
+  9.3 Instrucción de salida
+
+    "Responde únicamente con JSON válido con las claves: executiveSummary,
+    technicalSummary, hypotheses (array con statement, confidence, evidenceRefs,
+    requiresManualVerification), knowledgeCitations. No incluyas markdown fuera
+    del JSON."
+
+  9.4 RAG query (knowledge/query)
+
+    System: "Responde basándote en los fragmentos; si no bastan, dilo."
+    User: pregunta + fragmentos numerados.
+
+
+--------------------------------------------------------------------------------
+10. MITIGACIÓN DE ALUCINACIONES (CHECKLIST)
+--------------------------------------------------------------------------------
+
+  Antes de mostrar la respuesta al usuario:
+
+    [ ] ¿El JSON parsea y pasa validación de esquema?
+    [ ] ¿Cada hipótesis HIGH tiene al menos un evidenceRef validado contra datos
+        reales o contra chunks RAG?
+    [ ] ¿Las métricas citadas (si las hay en texto) existen en el contexto enviado?
+    [ ] ¿Los trace_id mencionados están en correlation o en evidencia explícita?
+    [ ] ¿Se ha aplicado redacción de secretos al contexto?
+    [ ] ¿Se registraron model + promptVersion + incidentId en el evento?
+
+  Si falla cualquier comprobación crítica: segundo intento con prompt más estricto
+  o degradar a resumen conservador + lista de "preguntas abiertas" sin HIGH.
+
+
+--------------------------------------------------------------------------------
+11. MODO DEGRADADO (SIN LLM O CON CUOTA AGOTADA)
+--------------------------------------------------------------------------------
+
+  - La UI debe seguir mostrando incidente, correlación y evidencia (CONTRATO-API).
+  - Opción A: mensaje claro "IA no disponible" + enlace a documentación.
+  - Opción B (demo): mostrar último IA_SUMMARY persistido o plantilla generada
+    solo con plantillas estáticas + datos estructurados (sin LLM), etiquetado como
+    `model: "template-only"` o similar.
+
+  Nunca presentar plantilla estática como si fuera salida del modelo sin etiquetar.
+
+
+--------------------------------------------------------------------------------
+12. FEEDBACK Y MEJORA CONTINUA (POST /ai/feedback)
+--------------------------------------------------------------------------------
+
+  - Almacenar helpful + opcional comment para análisis manual.
+  - Uso previsto portfolio: demostrar gobernanza; no es obligatorio ML sobre feedback
+    en MVP.
+  - Si helpful=false en serie sobre un promptVersion, priorizar revisión de ese prompt.
+
+
+--------------------------------------------------------------------------------
+13. LOGS Y AUDITORÍA (META)
+--------------------------------------------------------------------------------
+
+  - Log estructurado en backend: incidentId, promptVersion, duración, éxito/fallo,
+    tokens aproximados (si el SDK lo da), **no** registrar contenido completo de
+    prompts con datos sensibles; preferir hash o truncado.
+
+  - Trazabilidad: correlación con `X-Request-Id` si el cliente la envía.
+
+
+--------------------------------------------------------------------------------
+14. VARIABLES DE ENTORNO RECOMENDADAS (NOMBRES ORIENTATIVOS)
+--------------------------------------------------------------------------------
+
+  IA_ENABLED=true|false
+  IA_PROVIDER=openai|anthropic|ollama|...
+  IA_MODEL=...
+  IA_MAX_TOKENS_OUT=2048
+  IA_TEMPERATURE=0.2
+  IA_RAG_TOPK=5
+  IA_INCIDENT_SUMMARY_PER_HOUR=10
+  IA_CONTEXT_MAX_CHARS=120000
+  IA_TIMEOUT_MS=45000
+
+
+--------------------------------------------------------------------------------
+15. ALINEACIÓN CON ENTREVISTA TÉCNICA (FRASES CLAVE)
+--------------------------------------------------------------------------------
+
+  - "Separación estricta: reglas en código, IA para lenguaje y priorización con citas."
+  - "Contexto mínimo y redactado; límites y timeouts; 429 cuando toca."
+  - "Validación server-side del nivel de confianza frente a evidencia real."
+  - "RAG con citas obligatorias; si no hay chunks, el modelo debe admitir incertidumbre."
+
+
+================================================================================
+  FIN POLÍTICA IA
+================================================================================

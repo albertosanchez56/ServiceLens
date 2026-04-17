@@ -1,0 +1,148 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: servicelens-postgres
+    environment:
+      POSTGRES_USER: servicelens
+      POSTGRES_PASSWORD: servicelens
+      POSTGRES_DB: servicelens
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servicelens -d servicelens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: servicelens-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo/traces
+    ports:
+      - "3200:3200"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    container_name: servicelens-otel-collector
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./infra/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - tempo
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: servicelens-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:2.9.5
+    container_name: servicelens-loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./infra/loki.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.5
+    container_name: servicelens-promtail
+    user: root
+    volumes:
+      - ./infra/promtail.yaml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: servicelens-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: dark
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  payment:
+    build:
+      context: ./demo-payment
+    image: servicelens/payment:local
+    container_name: payment
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - otel-collector
+
+  checkout:
+    build:
+      context: ./demo-checkout
+    image: servicelens/checkout:local
+    container_name: checkout
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - payment
+      - otel-collector
+
+  edge-api:
+    build:
+      context: ./demo-edge-api
+    image: servicelens/edge-api:local
+    container_name: edge-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - checkout
+      - payment
+      - otel-collector
+
+  platform:
+    build:
+      context: ./platform
+    image: servicelens/platform:local
+    container_name: platform
+    ports:
+      - "8090:8090"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  tempo-data:
+  loki-data:
+  grafana-data:
