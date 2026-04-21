@@ -7,11 +7,22 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 @RestController
 @RequestMapping("/internal")
 public class PaymentController {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentController.class);
+
+    private final Counter simulatedFailures;
+
+    public PaymentController(MeterRegistry registry) {
+        this.simulatedFailures = Counter.builder("servicelens.demo.payment.simulated_failures")
+                .description("Fallos simulados para demo de deteccion ServiceLens")
+                .register(registry);
+    }
 
     @GetMapping("/pay")
     public String pay(
@@ -26,6 +37,7 @@ public class PaymentController {
             }
         }
         if (fail) {
+            simulatedFailures.increment();
             log.warn("Simulated payment failure");
             throw new IllegalStateException("Simulated payment failure");
         }

@@ -129,11 +129,15 @@ services:
       - "8090:8090"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      # Dentro del contenedor localhost:9090 no es Prometheus; forzar URL del servicio compose
+      SERVICELENS_PROMETHEUS_BASE_URL: http://prometheus:9090
       JWT_SECRET: "${JWT_SECRET:-dev-change-me-use-32-chars-minimum!!}"
     depends_on:
       postgres:
         condition: service_healthy
       otel-collector:
+        condition: service_started
+      prometheus:
         condition: service_started
 
 volumes:

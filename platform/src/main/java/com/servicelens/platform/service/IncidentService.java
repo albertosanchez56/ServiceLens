@@ -92,6 +92,29 @@ public class IncidentService {
         return toDetail(i);
     }
 
+    /**
+     * Crea un incidente OPEN por detección automática y registra {@link IncidentEventType#ALERT_TRIGGERED}.
+     */
+    @Transactional
+    public IncidentDetailDto createFromDetectionAlert(String title, String rootService, JsonNode alertPayload) {
+        Instant now = Instant.now();
+        UUID id = UUID.randomUUID();
+        Incident incident = new Incident(id, title, IncidentSeverity.HIGH, now, rootService, null);
+        incident = incidentRepository.save(incident);
+        IncidentEvent ev = new IncidentEvent(
+                UUID.randomUUID(),
+                incident,
+                IncidentEventType.ALERT_TRIGGERED,
+                now,
+                null,
+                true,
+                alertPayload);
+        incidentEventRepository.save(ev);
+        incident.setUpdatedAt(now);
+        incidentRepository.save(incident);
+        return toDetail(incident);
+    }
+
     @Transactional
     public IncidentDetailDto create(CreateIncidentRequest req) {
         Instant started = req.startedAt() != null ? req.startedAt() : Instant.now();

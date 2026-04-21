@@ -9,7 +9,7 @@ Este repositorio es un **monorepo** listo para ejecutarse en local con **Docker 
 | Parte | Descripción |
 |--------|-------------|
 | **demo-edge-api**, **demo-checkout**, **demo-payment** | Cadena HTTP de ejemplo; trazas y métricas vía OpenTelemetry. |
-| **platform** | API Spring Boot: incidentes, eventos, referencias de evidencia, autenticación **JWT** y roles **VIEWER** / **EDITOR**. Migraciones con **Flyway**. |
+| **platform** | API Spring Boot: incidentes, eventos, evidencia, **reglas de detección** (consultas a **Prometheus**), **señales** con deduplicación, apertura automática de incidentes, **JWT** y roles **VIEWER** / **EDITOR**. Migraciones con **Flyway**. |
 | **Stack local** | Postgres, **OpenTelemetry Collector**, **Tempo**, **Prometheus**, **Loki**, **Grafana**. |
 | **frontend** | Aplicación **Angular**: inicio de sesión, listado y detalle de incidente con **timeline** de eventos. |
 
@@ -52,6 +52,9 @@ El **edge** queda en el host en **18080** (no 8080) para evitar conflictos con o
 | Meta platform | http://localhost:8090/api/v1/meta |
 | Login JWT | `POST http://localhost:8090/api/v1/auth/login` (cuerpo JSON: `username`, `password`) |
 | Incidentes | `GET http://localhost:8090/api/v1/incidents` (cabecera `Authorization: Bearer …`) |
+| Reglas de detección | `GET http://localhost:8090/api/v1/rules` |
+| Señales | `GET http://localhost:8090/api/v1/signals` |
+| Forzar evaluación de una regla | `POST http://localhost:8090/api/v1/rules/{ruleId}/evaluate` (rol **EDITOR**) |
 | Health | http://localhost:8090/actuator/health |
 | UI Angular (desarrollo) | http://localhost:4200 tras `npm start` en `frontend/` |
 | Grafana | http://localhost:3000 (admin / admin) |
@@ -77,6 +80,21 @@ npm start
 
 La URL base de la API está en `frontend/src/environments/environment.ts` (por defecto `http://localhost:8090`). El backend admite CORS desde `http://localhost:4200`.
 
+## Detección automática (reglas y señales)
+
+La **platform** consulta periódicamente **Prometheus** (URL configurable: `servicelens.prometheus.base-url`; en Docker, `http://prometheus:9090`). Hay **dos reglas de ejemplo** sembradas por migración:
+
+1. **Payment — tasa de errores HTTP 5xx** (`job` Prometheus `demo-payment`): si la tasa supera el umbral en la ventana, se emite una señal y se abre un incidente **OPEN**.
+2. **Checkout — latencia p95** (`demo-checkout`): si el p95 supera el umbral (segundos), mismo flujo.
+
+**Deduplicación:** la huella es `ruleId + ":" + bucket`, donde el bucket es el índice de ventana fija `floor(epochSeconds / (windowMinutes × 60))`. Si la misma regla sigue incumpliendo en la misma ventana, se **actualiza** la señal existente (valor observado, consulta PromQL) y el incidente vinculado recibe `updated_at`, sin crear un incidente nuevo.
+
+**Métricas** (Micrometer): `servicelens.detection.evaluations`, `servicelens.detection.signals_created`, `servicelens.detection.signals_deduped`, `servicelens.detection.incidents_opened` (expuestas vía Actuator/Prometheus de **platform**).
+
+**Demo rápida:** con el stack en marcha, genera errores en payment: varias llamadas a `http://localhost:18080/api/flow?failPayment=true`, espera al siguiente ciclo del programador (o ejecuta `POST /api/v1/rules/{id}/evaluate` con el UUID de la regla de payment) y comprueba `GET /api/v1/incidents` y el timeline del incidente: el evento **ALERT_TRIGGERED** incluye `prometheusQuery`, `ruleName` y la ventana evaluada.
+
+Puedes desactivar el bucle con `servicelens.detection.enabled=false` o ajustar `servicelens.detection.poll-interval-ms`.
+
 ## Cómo comprobar que todo encaja
 
 **Observabilidad**
@@ -92,6 +110,11 @@ La URL base de la API está en `frontend/src/environments/environment.ts` (por d
 1. Con **Postgres** y **platform** en marcha (solo esos servicios o el `compose` completo), autentica con **editor** y crea un incidente vía API si lo necesitas, o usa datos ya presentes en base de datos.
 2. En la UI (**:4200**), revisa listado → detalle → **timeline** de eventos.
 3. Con **viewer**, confirma acceso de solo lectura; con **editor**, las operaciones permitidas por `CONTRATO-API.txt`.
+
+**Detección**
+
+1. Con **Prometheus** y los servicios demo arriba, lista reglas: `GET /api/v1/rules` (con JWT).
+2. Opcional: `POST .../api/flow?failPayment=true` varias veces y revisa incidentes/señales o fuerza evaluación con `POST /api/v1/rules/{ruleId}/evaluate`.
 
 ## Red interna (Docker)
 
