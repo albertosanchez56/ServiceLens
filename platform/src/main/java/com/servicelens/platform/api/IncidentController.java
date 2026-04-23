@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.servicelens.platform.api.dto.CreateIncidentRequest;
 import com.servicelens.platform.api.dto.IncidentDetailDto;
+import com.servicelens.platform.api.dto.IncidentEventResponse;
 import com.servicelens.platform.api.dto.IncidentSummaryDto;
 import com.servicelens.platform.api.dto.PageResponse;
 import com.servicelens.platform.api.dto.PatchIncidentRequest;
@@ -64,5 +65,10 @@ public class IncidentController {
     @PatchMapping("/{id}")
     public IncidentDetailDto patch(@PathVariable UUID id, @Valid @RequestBody PatchIncidentRequest req) {
         return incidentService.patch(id, req);
+    }
+
+    @PostMapping("/{id}/ai-summary")
+    public IncidentEventResponse aiSummary(@PathVariable UUID id) {
+        return incidentService.generateAiSummary(id);
     }
 }

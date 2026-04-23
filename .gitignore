@@ -40,3 +40,6 @@ application-secrets.yml
 
 # Docker (volúmenes o overrides locales; el compose del repo sí va)
 docker-compose.override.yml
+
+# Guía de estudio personal (no versionar)
+GUIA-ESTUDIO-CODIGO-SERVICELENS.txt

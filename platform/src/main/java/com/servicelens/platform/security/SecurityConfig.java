@@ -71,6 +71,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/signals/*").hasRole("EDITOR")
                 .requestMatchers(HttpMethod.GET, "/api/v1/me").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/v1/incidents").hasRole("EDITOR")
+                .requestMatchers(HttpMethod.POST, "/api/v1/incidents/*/ai-summary").hasRole("EDITOR")
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/incidents/*").hasRole("EDITOR")
                 .requestMatchers(HttpMethod.POST, "/api/v1/incidents/*/events").hasRole("EDITOR")
                 .requestMatchers(HttpMethod.POST, "/api/v1/incidents/*/evidence").hasRole("EDITOR")

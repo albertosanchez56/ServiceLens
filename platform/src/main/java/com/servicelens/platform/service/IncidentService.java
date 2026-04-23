@@ -41,14 +41,17 @@ public class IncidentService {
     private final IncidentRepository incidentRepository;
     private final IncidentEventRepository incidentEventRepository;
     private final EvidenceRefRepository evidenceRefRepository;
+    private final AiSummaryService aiSummaryService;
 
     public IncidentService(
             IncidentRepository incidentRepository,
             IncidentEventRepository incidentEventRepository,
-            EvidenceRefRepository evidenceRefRepository) {
+            EvidenceRefRepository evidenceRefRepository,
+            AiSummaryService aiSummaryService) {
         this.incidentRepository = incidentRepository;
         this.incidentEventRepository = incidentEventRepository;
         this.evidenceRefRepository = evidenceRefRepository;
+        this.aiSummaryService = aiSummaryService;
     }
 
     @Transactional(readOnly = true)
@@ -221,6 +224,30 @@ public class IncidentService {
                 system ? null : username,
                 system,
                 req.payload());
+        incidentEventRepository.save(ev);
+        incident.setUpdatedAt(Instant.now());
+        incidentRepository.save(incident);
+        return toEventResponse(ev);
+    }
+
+    /**
+     * Genera un evento {@link IncidentEventType#IA_SUMMARY} de forma determinista (sin IA externa).
+     * Se guarda como evento de sistema y aparece en el timeline.
+     */
+    @Transactional
+    public IncidentEventResponse generateAiSummary(UUID incidentId) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new NotFoundException("INCIDENT_NOT_FOUND", "Incidente no encontrado"));
+        List<IncidentEvent> events = incidentEventRepository.findByIncident_IdOrderByOccurredAtAsc(incidentId);
+        ObjectNode payload = aiSummaryService.buildSummaryPayload(incident, events);
+        IncidentEvent ev = new IncidentEvent(
+                UUID.randomUUID(),
+                incident,
+                IncidentEventType.IA_SUMMARY,
+                Instant.now(),
+                null,
+                true,
+                payload);
         incidentEventRepository.save(ev);
         incident.setUpdatedAt(Instant.now());
         incidentRepository.save(incident);
